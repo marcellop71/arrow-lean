@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
+#include <zstd.h>
 
 // ============================================================================
 // Thrift Compact Protocol Implementation
@@ -642,17 +643,39 @@ static int write_column_chunk(ParquetFileWriter* writer, struct ArrowArray* arra
         return -1;
     }
 
+    // Compress data page if compression is enabled
+    int32_t uncompressed_size = (int32_t)data_buf->size;
+    uint8_t* write_data = data_buf->data;
+    int32_t compressed_size = uncompressed_size;
+    uint8_t* compressed_buf = NULL;
+
+    if (writer->compression == PARQUET_CODEC_ZSTD && uncompressed_size > 0) {
+        size_t bound = ZSTD_compressBound(uncompressed_size);
+        compressed_buf = malloc(bound);
+        if (compressed_buf) {
+            size_t csize = ZSTD_compress(compressed_buf, bound,
+                                         data_buf->data, uncompressed_size, 3);
+            if (!ZSTD_isError(csize)) {
+                compressed_size = (int32_t)csize;
+                write_data = compressed_buf;
+            } else {
+                free(compressed_buf);
+                compressed_buf = NULL;
+                // Fall back to uncompressed
+            }
+        }
+    }
+
     // Build page header
     ThriftBuffer* header_buf = thrift_buffer_create(256);
     if (!header_buf) {
+        free(compressed_buf);
         thrift_buffer_free(data_buf);
         return -1;
     }
 
-    int32_t uncompressed_size = (int32_t)data_buf->size;
-    int32_t compressed_size = uncompressed_size;  // No compression for now
-
     if (serialize_page_header(header_buf, PARQUET_PAGE_DATA, uncompressed_size, compressed_size, num_values, PARQUET_ENCODING_PLAIN) != 0) {
+        free(compressed_buf);
         thrift_buffer_free(data_buf);
         thrift_buffer_free(header_buf);
         return -1;
@@ -675,9 +698,10 @@ static int write_column_chunk(ParquetFileWriter* writer, struct ArrowArray* arra
 
     // Write to file
     fwrite(header_buf->data, 1, header_buf->size, writer->file);
-    fwrite(data_buf->data, 1, data_buf->size, writer->file);
-    writer->current_offset += header_buf->size + data_buf->size;
+    fwrite(write_data, 1, compressed_size, writer->file);
+    writer->current_offset += header_buf->size + compressed_size;
 
+    free(compressed_buf);
     thrift_buffer_free(data_buf);
     thrift_buffer_free(header_buf);
 
