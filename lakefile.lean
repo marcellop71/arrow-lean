@@ -8,7 +8,8 @@ package arrowLean where
     "-L/usr/local/lib",
     "-Wl,-rpath,/usr/local/lib",
     "-Wl,--allow-shlib-undefined",
-    "-lzlog"
+    "-lzlog",
+    "-lzstd"
   ]
 
 @[default_target]

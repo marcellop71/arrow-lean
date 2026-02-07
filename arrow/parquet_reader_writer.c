@@ -174,8 +174,8 @@ struct ParquetWriter* parquet_writer_open(const char* file_path, struct ArrowSch
     }
 
     writer->is_open = true;
-    writer->compression = PARQUET_COMPRESSION_UNCOMPRESSED;
-    parquet_file_writer_set_compression(writer->impl, PARQUET_CODEC_UNCOMPRESSED);
+    writer->compression = PARQUET_COMPRESSION_ZSTD;
+    parquet_file_writer_set_compression(writer->impl, PARQUET_CODEC_ZSTD);
 
     return writer;
 }
