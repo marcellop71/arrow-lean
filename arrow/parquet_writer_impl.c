@@ -162,7 +162,7 @@ static int thrift_write_list_header(ThriftBuffer* buf, int16_t field_id, uint8_t
 // ============================================================================
 
 // Serialize SchemaElement
-static int serialize_schema_element(ThriftBuffer* buf, ParquetColumnDef* col, bool is_root) {
+static int serialize_schema_element(ThriftBuffer* buf, ParquetColumnDef* col, bool is_root, int32_t num_children) {
     int16_t last_field = 0;
 
     // Field 1: type (only for leaf nodes)
@@ -184,8 +184,8 @@ static int serialize_schema_element(ThriftBuffer* buf, ParquetColumnDef* col, bo
     if (thrift_write_string_field(buf, 4, col->name, &last_field) != 0) return -1;
 
     // Field 5: num_children (only for groups/root)
-    if (is_root) {
-        // Root has children count
+    if (is_root && num_children > 0) {
+        if (thrift_write_i32(buf, 5, num_children, &last_field) != 0) return -1;
     }
 
     // Field 6: converted_type
@@ -278,11 +278,11 @@ static int serialize_file_metadata(ThriftBuffer* buf, ParquetFileWriter* writer)
 
     // Root schema element
     ParquetColumnDef root = { .name = "schema", .type = -1, .repetition = PARQUET_REPETITION_REQUIRED };
-    if (serialize_schema_element(buf, &root, true) != 0) return -1;
+    if (serialize_schema_element(buf, &root, true, writer->num_columns) != 0) return -1;
 
     // Column schema elements
     for (int i = 0; i < writer->num_columns; i++) {
-        if (serialize_schema_element(buf, &writer->columns[i], false) != 0) return -1;
+        if (serialize_schema_element(buf, &writer->columns[i], false, 0) != 0) return -1;
     }
 
     // Field 3: num_rows
