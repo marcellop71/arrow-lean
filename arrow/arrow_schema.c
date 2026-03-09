@@ -7,7 +7,7 @@
 #endif
 
 // Fallback implementation for strdup if not available
-#ifndef strdup
+#if !defined(strdup) && !defined(__APPLE__)
 static char* strdup(const char* s) {
     size_t len = strlen(s) + 1;
     char* copy = malloc(len);
