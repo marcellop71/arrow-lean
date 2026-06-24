@@ -242,10 +242,10 @@ extern_lib libarrow_wrapper pkg := do
       chunkedObj, chunkedWrapperObj, csvParquetStubObj]
 
 require Cli from git
-  "https://github.com/leanprover/lean4-cli.git" @ "v4.29.0"
+  "https://github.com/leanprover/lean4-cli.git" @ "v4.31.0"
 
 require zlogLean from git
-  "git@github.com:marcellop71/zlog-lean.git" @ "v4.29.0"
+  "git@github.com:marcellop71/zlog-lean.git" @ "v4.31.0"
 
 lean_exe examples where
   root := `Examples.Main
