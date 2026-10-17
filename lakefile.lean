@@ -18,154 +18,95 @@ lean_lib ArrowLean
 lean_lib Examples where
   globs := #[.submodules `Examples]
 
+/-- Compile `src` into `oFile` with a build trace over `src` and `deps` (local headers,
+    `#include`d `.c` files), so editing any of them rebuilds the object and the archives
+    that use it. `weakArgs` (include paths) are kept out of the trace. -/
+def tracedO (oFile src : FilePath) (deps : Array FilePath := #[])
+    (weakArgs traceArgs : Array String := #[]) : SpawnM (Job FilePath) := do
+  let inputs ← (#[src] ++ deps).mapM inputTextFile
+  let srcJob ← (Job.collectArray inputs).mapM fun _ => pure src
+  buildO oFile srcJob weakArgs traceArgs
+
+/-- Local headers of the C implementation: an edit to any of them rebuilds every object -/
+def arrowHeaders (arrowDir : FilePath) : IO (Array FilePath) := do
+  let hs := (← arrowDir.readDir).filter (·.path.extension == some "h") |>.map (·.path)
+  return hs.qsort (·.toString < ·.toString)
+
+/-- Compile `arrow/<name>.c` into `<build>/arrow/<name>.o`, traced on the source and the headers -/
+def arrowO (pkgDir buildDir : FilePath) (name : String) : FetchM (Job FilePath) := do
+  let arrowDir := pkgDir / "arrow"
+  tracedO (buildDir / "arrow" / s!"{name}.o") (arrowDir / s!"{name}.c") (← arrowHeaders arrowDir)
+    (weakArgs := #["-I", (← getLeanIncludeDir).toString, "-I", arrowDir.toString])
+    (traceArgs := #["-fPIC", "-O2", "-std=c99"])
+
 target arrow_schema_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "arrow_schema.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "arrow_schema.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "arrow_schema"
 
 target arrow_array_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "arrow_array.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "arrow_array.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "arrow_array"
 
 target arrow_stream_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "arrow_stream.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "arrow_stream.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "arrow_stream"
 
 target arrow_data_access_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "arrow_data_access.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "arrow_data_access.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "arrow_data_access"
 
 target arrow_buffer_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "arrow_buffer.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "arrow_buffer.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "arrow_buffer"
 
 target lean_arrow_wrapper_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "lean_arrow_wrapper.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "lean_arrow_wrapper.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "lean_arrow_wrapper"
 
 target lean_arrow_finalizers_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "lean_arrow_finalizers.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "lean_arrow_finalizers.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "lean_arrow_finalizers"
 
 target lean_parquet_wrapper_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "lean_parquet_wrapper.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "lean_parquet_wrapper.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "lean_parquet_wrapper"
 
 target parquet_reader_writer_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "parquet_reader_writer.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "parquet_reader_writer.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "parquet_reader_writer"
 
 -- Pure C Parquet writer implementation (Thrift serialization, data pages, footer)
 target parquet_writer_impl_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "parquet_writer_impl.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "parquet_writer_impl.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "parquet_writer_impl"
 
 -- Pure C Parquet reader implementation (Thrift decoding, page reading)
 target parquet_reader_impl_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "parquet_reader_impl.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "parquet_reader_impl.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "parquet_reader_impl"
 
 target arrow_ipc_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "arrow_ipc.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "arrow_ipc.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "arrow_ipc"
 
 target lean_arrow_ipc_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "lean_arrow_ipc.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "lean_arrow_ipc.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "lean_arrow_ipc"
 
 -- Typed column builders for direct Arrow array construction (pure C)
 target arrow_builders_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "arrow_builders.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "arrow_builders.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "arrow_builders"
 
 -- Lean FFI wrappers for typed builders (pure C)
 target lean_builder_wrapper_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "lean_builder_wrapper.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "lean_builder_wrapper.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "lean_builder_wrapper"
 
 -- Nested type builders (List, Struct, Decimal128, Dictionary, Map)
 target arrow_nested_builders_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "arrow_nested_builders.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "arrow_nested_builders.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "arrow_nested_builders"
 
 -- Arrow compute functions (arithmetic, comparisons, aggregations)
 target arrow_compute_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "arrow_compute.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "arrow_compute.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "arrow_compute"
 
 -- Lean FFI wrappers for Arrow compute functions
 target lean_arrow_compute_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "lean_arrow_compute.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "lean_arrow_compute.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "lean_arrow_compute"
 
 -- ChunkedArray and Table implementation
 target arrow_chunked_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "arrow_chunked.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "arrow_chunked.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "arrow_chunked"
 
 -- Lean FFI wrappers for ChunkedArray and Table
 target lean_arrow_chunked_o pkg : FilePath := do
-  let oFile := pkg.buildDir / "arrow" / "lean_arrow_chunked.o"
-  IO.FS.createDirAll oFile.parent.get!
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString, "-I", (pkg.dir / "arrow").toString]
-  compileO oFile (pkg.dir / "arrow" / "lean_arrow_chunked.c") flags
-  return .pure oFile
+  arrowO pkg.dir pkg.buildDir "lean_arrow_chunked"
 
 -- Stub for CSV/Parquet functions (C++ dependency removed)
 -- Use the new typed builders + IPC for data serialization instead
@@ -201,9 +142,9 @@ LEAN_EXPORT lean_obj_res lean_arrow_version(lean_obj_arg w) {
     return lean_io_result_mk_ok(lean_mk_string(\"pure-c-1.0.0\"));
 }
 "
-  let flags := #["-fPIC", "-O2", "-std=c99", "-I", (← getLeanIncludeDir).toString]
-  compileO oFile stubSrc flags
-  return .pure oFile
+  tracedO oFile stubSrc
+    (weakArgs := #["-I", (← getLeanIncludeDir).toString])
+    (traceArgs := #["-fPIC", "-O2", "-std=c99"])
 
 extern_lib libarrow_wrapper pkg := do
   -- Core Arrow C implementation
