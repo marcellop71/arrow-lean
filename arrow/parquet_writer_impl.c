@@ -497,43 +497,38 @@ int parquet_file_writer_set_schema_from_arrow(ParquetFileWriter* writer, struct 
     return 0;
 }
 
-// Write RLE-encoded definition levels
+// Write definition levels for an OPTIONAL column (max definition level 1).
+//
+// Data page v1 layout: the levels are an RLE/bit-packing hybrid with an implied bit
+// width of 1, and the whole run is prefixed by its byte length as a 4-byte
+// little-endian integer. (This used to write a 1-byte "bit width" and no length,
+// which readers such as pyarrow, and arrow-lean's own reader, reject.)
 static int write_definition_levels(ThriftBuffer* buf, int num_values, const uint8_t* validity, int64_t null_count) {
-    // Definition level: 0 = null, 1 = not null
-    // For OPTIONAL columns, we need definition levels
+    ThriftBuffer* levels = thrift_buffer_create(64);
+    if (!levels) return -1;
+    int rc = 0;
 
-    // RLE encoding: bit-width, then RLE/bit-packed data
-    // Bit width for max definition level 1 is 1
-
-    if (null_count == 0) {
-        // All values are defined (level 1)
-        // Write as RLE run
-        int bit_width = 1;
-        if (thrift_buffer_write_byte(buf, bit_width) != 0) return -1;
-
-        // RLE header: (count << 1) | 0
-        int rle_header = (num_values << 1);
-        if (thrift_buffer_write_varint(buf, rle_header) != 0) return -1;
-
-        // Value: 1 (defined)
-        if (thrift_buffer_write_byte(buf, 1) != 0) return -1;
+    if (validity == NULL || null_count == 0) {
+        // Every value is defined: one RLE run of `num_values` ones.
+        // Header (count << 1), then the value in ceil(bit_width / 8) = 1 byte.
+        rc = thrift_buffer_write_varint(levels, num_values << 1);
+        if (rc == 0) rc = thrift_buffer_write_byte(levels, 1);
     } else {
-        // Mix of null and non-null
-        // Write as bit-packed
-        int bit_width = 1;
-        if (thrift_buffer_write_byte(buf, bit_width) != 0) return -1;
-
-        // Bit-packed header: ((count / 8) << 1) | 1
+        // Nulls present (or null_count unknown, -1): bit-packed groups of 8 values.
+        // Header ((num_groups << 1) | 1); the Arrow validity bitmap is already
+        // LSB-first with 1 bit per value, i.e. the bit-packed layout for width 1.
         int num_groups = (num_values + 7) / 8;
-        int bp_header = (num_groups << 1) | 1;
-        if (thrift_buffer_write_varint(buf, bp_header) != 0) return -1;
-
-        // Copy validity bitmap directly (it's already bit-packed)
-        int bitmap_bytes = (num_values + 7) / 8;
-        if (thrift_buffer_write_bytes(buf, validity, bitmap_bytes) != 0) return -1;
+        rc = thrift_buffer_write_varint(levels, (num_groups << 1) | 1);
+        if (rc == 0) rc = thrift_buffer_write_bytes(levels, validity, num_groups);
     }
 
-    return 0;
+    if (rc == 0) {
+        uint32_t len = (uint32_t)levels->size;  // little-endian on supported targets
+        rc = thrift_buffer_write_bytes(buf, &len, sizeof(len));
+        if (rc == 0) rc = thrift_buffer_write_bytes(buf, levels->data, levels->size);
+    }
+    thrift_buffer_free(levels);
+    return rc;
 }
 
 // Write plain-encoded data for different types

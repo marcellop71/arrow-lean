@@ -188,5 +188,10 @@ require Cli from git
 require zlogLean from git
   "git@github.com:marcellop71/zlog-lean.git" @ "v4.35.0"
 
+/-- Regression test: nullable columns readable by pyarrow
+    (`ArrowLeanTests/run-parquet-nulls-test.sh`) -/
+lean_exe «parquet-nulls-test» where
+  root := `ArrowLeanTests.ParquetNulls
+
 lean_exe examples where
   root := `Examples.Main
