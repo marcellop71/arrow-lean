@@ -57,6 +57,7 @@
           zlogDeps.zlog
           pkgs.gmp
           pkgs.arrow-cpp
+          pkgs.zstd           # Parquet page compression (-lzstd)
         ];
 
         # GCC library path for libstdc++
@@ -74,7 +75,7 @@
 
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (nativeDeps ++ [ pkgs.stdenv.cc.cc.lib ]);
           LIBRARY_PATH = pkgs.lib.makeLibraryPath (nativeDeps ++ [ pkgs.stdenv.cc.cc.lib ]);
-          C_INCLUDE_PATH = zlogDeps.zlogInclude;
+          C_INCLUDE_PATH = "${zlogDeps.zlogInclude}:${pkgs.zstd.dev}/include";
           CPLUS_INCLUDE_PATH = "${pkgs.arrow-cpp}/include";
           ARROW_LIB_PATH = "${pkgs.arrow-cpp}/lib";
           GCC_LIB_PATH = gccLibPath;

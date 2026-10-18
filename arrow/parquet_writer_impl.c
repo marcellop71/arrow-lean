@@ -424,17 +424,20 @@ static int arrow_format_to_parquet(const char* format, ParquetType* type, Parque
         case 'b':  // bool
             *type = PARQUET_TYPE_BOOLEAN;
             break;
-        case 'c':  // int8
-        case 'C':  // uint8
-        case 's':  // int16
-        case 'S':  // uint16
-        case 'i':  // int32
-        case 'I':  // uint32
-            *type = PARQUET_TYPE_INT32;
-            break;
+        // Narrow and unsigned integers are stored as INT32/INT64 with a converted type,
+        // which also tells write_column_chunk the width of the Arrow values
+        case 'c': *type = PARQUET_TYPE_INT32; *converted = PARQUET_CONVERTED_INT_8; break;
+        case 'C': *type = PARQUET_TYPE_INT32; *converted = PARQUET_CONVERTED_UINT_8; break;
+        case 's': *type = PARQUET_TYPE_INT32; *converted = PARQUET_CONVERTED_INT_16; break;
+        case 'S': *type = PARQUET_TYPE_INT32; *converted = PARQUET_CONVERTED_UINT_16; break;
+        case 'i': *type = PARQUET_TYPE_INT32; break;
+        case 'I': *type = PARQUET_TYPE_INT32; *converted = PARQUET_CONVERTED_UINT_32; break;
         case 'l':  // int64
+            *type = PARQUET_TYPE_INT64;
+            break;
         case 'L':  // uint64
             *type = PARQUET_TYPE_INT64;
+            *converted = PARQUET_CONVERTED_UINT_64;
             break;
         case 'f':  // float32
             *type = PARQUET_TYPE_FLOAT;
@@ -451,12 +454,24 @@ static int arrow_format_to_parquet(const char* format, ParquetType* type, Parque
         case 'Z':  // large binary
             *type = PARQUET_TYPE_BYTE_ARRAY;
             break;
-        case 't':  // timestamp
-            *type = PARQUET_TYPE_INT64;
-            if (strncmp(format, "tsu", 3) == 0) {
-                *converted = PARQUET_CONVERTED_TIMESTAMP_MICROS;
-            } else if (strncmp(format, "tsm", 3) == 0) {
-                *converted = PARQUET_CONVERTED_TIMESTAMP_MILLIS;
+        case 't':  // temporal: the value width depends on the unit
+            if (strncmp(format, "tdD", 3) == 0) {          // date32: days, 4 bytes
+                *type = PARQUET_TYPE_INT32;
+                *converted = PARQUET_CONVERTED_DATE;
+            } else if (strncmp(format, "tts", 3) == 0) {   // time32 seconds, 4 bytes
+                *type = PARQUET_TYPE_INT32;
+            } else if (strncmp(format, "ttm", 3) == 0) {   // time32 millis, 4 bytes
+                *type = PARQUET_TYPE_INT32;
+                *converted = PARQUET_CONVERTED_TIME_MILLIS;
+            } else {                                       // date64, time64, timestamp, duration: 8 bytes
+                *type = PARQUET_TYPE_INT64;
+                if (strncmp(format, "tsu", 3) == 0) {
+                    *converted = PARQUET_CONVERTED_TIMESTAMP_MICROS;
+                } else if (strncmp(format, "tsm", 3) == 0) {
+                    *converted = PARQUET_CONVERTED_TIMESTAMP_MILLIS;
+                } else if (strncmp(format, "ttu", 3) == 0) {
+                    *converted = PARQUET_CONVERTED_TIME_MICROS;
+                }
             }
             break;
         case '+':  // nested types (struct, list, etc.)
@@ -545,6 +560,30 @@ static int write_plain_int64_data(ThriftBuffer* buf, const int64_t* data, int nu
     return 0;
 }
 
+/* INT32 columns: Arrow int8/uint8/int16/uint16 values are widened to 4 bytes (the
+   column's converted type gives their width and sign); int32, uint32, date32 and
+   time32 values are already 4 bytes. */
+static int write_plain_int32_data(ThriftBuffer* buf, const void* data, int num_values,
+                                  const uint8_t* validity, ParquetConvertedType converted) {
+    for (int i = 0; i < num_values; i++) {
+        if (validity) {
+            int byte_idx = i / 8;
+            int bit_idx = i % 8;
+            if (!((validity[byte_idx] >> bit_idx) & 1)) continue;
+        }
+        int32_t v;
+        switch (converted) {
+            case PARQUET_CONVERTED_INT_8:   v = ((const int8_t*)data)[i]; break;
+            case PARQUET_CONVERTED_UINT_8:  v = ((const uint8_t*)data)[i]; break;
+            case PARQUET_CONVERTED_INT_16:  v = ((const int16_t*)data)[i]; break;
+            case PARQUET_CONVERTED_UINT_16: v = ((const uint16_t*)data)[i]; break;
+            default:                        v = ((const int32_t*)data)[i]; break;
+        }
+        if (thrift_buffer_write_bytes(buf, &v, sizeof(int32_t)) != 0) return -1;
+    }
+    return 0;
+}
+
 static int write_plain_double_data(ThriftBuffer* buf, const double* data, int num_values, const uint8_t* validity) {
     for (int i = 0; i < num_values; i++) {
         if (validity) {
@@ -614,6 +653,12 @@ static int write_column_chunk(ParquetFileWriter* writer, struct ArrowArray* arra
     // Write data based on type
     int result = 0;
     switch (col->type) {
+        case PARQUET_TYPE_INT32:
+            result = write_plain_int32_data(data_buf, array->buffers[1], num_values, validity, col->converted_type);
+            break;
+        case PARQUET_TYPE_FLOAT:  // 4-byte values, copied as they are
+            result = write_plain_int32_data(data_buf, array->buffers[1], num_values, validity, PARQUET_CONVERTED_NONE);
+            break;
         case PARQUET_TYPE_INT64:
             result = write_plain_int64_data(data_buf, (const int64_t*)array->buffers[1], num_values, validity);
             break;
