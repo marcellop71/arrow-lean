@@ -527,7 +527,7 @@ def writeParquet (path : String) (schema : ArrowSchema) : IO Unit := do
 
 ## Integration with Redis
 
-For storing Arrow data in Redis, see [redis-lean](https://github.com/marcellop71/redis-lean) which provides the `RedisArrow` module with:
+For storing Arrow data in Redis, see [redis-lean](https://github.com/proofinity-it/redis-lean) which provides the `RedisArrow` module with:
 - **Table Storage**: Store Arrow schemas and batches in Redis keys
 - **Stream Micro-Batching**: Convert Redis Streams to Arrow RecordBatches
 
@@ -535,3 +535,8 @@ For storing Arrow data in Redis, see [redis-lean](https://github.com/marcellop71
 
 - [Arrow Memory Format](docs/Arrow.md) - Understanding Arrow's columnar layout
 - [Parquet Support](docs/Parquet.md) - Reading and writing Parquet files
+
+## License
+
+Copyright © 2026 Proofinity s.r.l. Licensed under the Apache License,
+Version 2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE).

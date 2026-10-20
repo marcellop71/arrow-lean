@@ -186,7 +186,7 @@ require Cli from git
   "https://github.com/leanprover/lean4-cli.git" @ "v4.35.0"
 
 require zlogLean from git
-  "git@github.com:marcellop71/zlog-lean.git" @ "v4.35.0"
+  "https://github.com/proofinity-it/zlog-lean" @ "v4.35.0"
 
 /-- Regression test: nullable columns readable by pyarrow
     (`ArrowLeanTests/run-parquet-nulls-test.sh`) -/
